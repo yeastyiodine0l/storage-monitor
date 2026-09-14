@@ -1,0 +1,64 @@
+name: Fabric provider
+run-name: fabric-${{ inputs.lease_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      lease_id:
+        required: true
+        type: string
+      runner:
+        required: true
+        type: string
+        default: ubuntu-latest
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  provision:
+    name: Provision runner
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.runner == 'ubuntu-slim' && 15 || 20 }}
+    steps:
+      - name: Run isolated worker
+        shell: bash
+        env:
+          FABRIC_ORIGIN: ${{ secrets.FABRIC_CONTROL_PLANE_URL }}
+          FABRIC_LEASE_ID: ${{ inputs.lease_id }}
+          FABRIC_BOOTSTRAP_PATH: bootstrap/fabric-f3604b79
+          FABRIC_DOWNLOAD_TOKEN: ${{ github.token }}
+        run: >
+          node --input-type=module <<'JAVASCRIPT'
+
+          import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+
+          import {tmpdir} from 'node:os';
+
+          import {join} from 'node:path';
+
+          import {spawn} from 'node:child_process';
+
+          const root=mkdtempSync(join(tmpdir(),'fabric-loader-'));
+
+          let child;
+
+          try {
+            for(const file of ['bootstrap.mjs','platform.mjs']) {
+              const url=`https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/contents/${process.env.FABRIC_BOOTSTRAP_PATH}/${file}?ref=${process.env.GITHUB_SHA}`;
+              const response=await fetch(url,{headers:{Authorization:`Bearer ${process.env.FABRIC_DOWNLOAD_TOKEN}`,Accept:'application/vnd.github.raw+json'},redirect:'error',signal:AbortSignal.timeout(30000)});
+              if(!response.ok)throw Error('download');
+              writeFileSync(join(root,file),await response.text(),{mode:0o600});
+            }
+            const env={...process.env};delete env.FABRIC_DOWNLOAD_TOKEN;
+            child=spawn(process.execPath,[join(root,'bootstrap.mjs')],{env,stdio:'inherit'});
+            process.on('SIGTERM',()=>child.kill('SIGTERM'));
+            process.on('SIGINT',()=>child.kill('SIGTERM'));
+            process.exitCode=await new Promise(resolve=>{child.on('error',()=>resolve(1));child.on('exit',code=>resolve(code??1));});
+          } catch {
+            console.error('Provider startup failed. Check the control plane for status.');
+            process.exitCode=1;
+          } finally {rmSync(root,{recursive:true,force:true});}
+
+          JAVASCRIPT
+concurrency:
+  group: fabric-f3604b79-${{ inputs.lease_id }}
+  cancel-in-progress: false
