@@ -4,6 +4,7 @@ import {
   listenerCommand,
   listenerArgs,
 } from "./platform.mjs";
+import { awaitRunnerExit, reportCompletion } from "./lifecycle.mjs";
 /** Runs only on an ephemeral provider VM. Never print its configuration or consumer logs. */
 import {
   generateKeyPairSync,
@@ -23,7 +24,6 @@ import {
   readSync,
   closeSync,
   readdirSync,
-  statSync,
   rmSync,
   realpathSync,
 } from "node:fs";
@@ -152,8 +152,7 @@ async function main() {
   const streams = new Map(),
     pending = [];
   let gaps = 0,
-    bytes = 0,
-    stopped = false;
+    bytes = 0;
   const pages = join(runner, "_diag", "pages");
   // Keep descriptors open after GitHub removes uploaded pages. Completed API logs reconcile any creation race.
   function scan() {
@@ -237,26 +236,9 @@ async function main() {
       killer.on("error", () => child.kill());
     } else process.kill(-child.pid, "SIGTERM");
   }
-  let timeout = false;
-  const deadline = setTimeout(
-    () => {
-      timeout = true;
-      try {
-        stopRunner();
-      } catch {}
-    },
-    Math.min(conf.timeoutSeconds ?? 600, 1800) * 1000,
-  );
-  process.on("SIGTERM", () => {
-    try {
-      stopRunner();
-    } catch {}
-  });
-  const exitCode = await new Promise((resolve) => {
-    child.on("error", () => resolve(1));
-    child.on("exit", (code) => resolve(code ?? 1));
-  });
-  clearTimeout(deadline);
+  // GitHub's ephemeral listener finishes after its one assigned job, including post steps.
+  // Consumer cancellation/timeouts remain native; Fabric never interrupts active work by age.
+  const result = await awaitRunnerExit(child, { stop: stopRunner });
   clearInterval(timer);
   clearInterval(heartbeat);
   while (busy) await sleep(100);
@@ -270,14 +252,17 @@ async function main() {
   for (const s of streams.values()) closeSync(s.fd);
   closeSync(stdout);
   if (pending.length) gaps += pending.length;
-  await request(
-    `/api/agent/${lease}/finished`,
-    { exitCode: timeout ? 124 : exitCode, logGaps: gaps },
-    conf.callbackToken,
+  const reported = await reportCompletion(
+    (body) => request(`/api/agent/${lease}/finished`, body, conf.callbackToken),
+    { ...result, logGaps: gaps },
   );
+  if (!reported)
+    console.warn(
+      "Completion reporting deferred. The control plane will reconcile status.",
+    );
   // Diagnostic content intentionally stays on this disposable VM; never upload it to the public provider repo.
   console.log("Fabric runner finished. Consumer logs are available in Actions Fabric.");
-  process.exitCode = timeout ? 124 : exitCode;
+  process.exitCode = result.exitCode;
 }
 try {
   await main();

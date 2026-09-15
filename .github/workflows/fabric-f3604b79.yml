@@ -17,7 +17,7 @@ jobs:
   provision:
     name: Provision runner
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: ${{ inputs.runner == 'ubuntu-slim' && 15 || 20 }}
+    timeout-minutes: ${{ inputs.runner == 'ubuntu-slim' && 15 || 360 }}
     steps:
       - name: Run isolated worker
         shell: bash
@@ -42,7 +42,7 @@ jobs:
           let child;
 
           try {
-            for(const file of ['bootstrap.mjs','platform.mjs']) {
+            for(const file of ['bootstrap.mjs','platform.mjs','lifecycle.mjs']) {
               const url=`https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/contents/${process.env.FABRIC_BOOTSTRAP_PATH}/${file}?ref=${process.env.GITHUB_SHA}`;
               const response=await fetch(url,{headers:{Authorization:`Bearer ${process.env.FABRIC_DOWNLOAD_TOKEN}`,Accept:'application/vnd.github.raw+json'},redirect:'error',signal:AbortSignal.timeout(30000)});
               if(!response.ok)throw Error('download');

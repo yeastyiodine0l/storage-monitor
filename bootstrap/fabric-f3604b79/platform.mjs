@@ -72,12 +72,16 @@ export function runnerEnvironment(source, root, platform = process.platform) {
   return env;
 }
 export function listenerCommand(runner, platform = process.platform) {
-  return platform === "win32"
-    ? join(runner, "bin", "Runner.Listener.exe")
-    : join(runner, "run.sh");
+  // The Unix run.sh service wrapper restarts some exits and converts others to zero.
+  // Supervise the one ephemeral listener directly so its teardown and exit are authoritative.
+  return join(
+    runner,
+    "bin",
+    platform === "win32" ? "Runner.Listener.exe" : "Runner.Listener",
+  );
 }
 export function listenerArgs(config, platform = process.platform) {
-  return [...(platform === "win32" ? ["run"] : []), "--jitconfig", config];
+  return ["run", "--jitconfig", config];
 }
 
 /** JIT settings are read directly by Runner.Listener; command flags do not override them. */
