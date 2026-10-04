@@ -222,47 +222,61 @@ async function main() {
       request(`/api/agent/${lease}/heartbeat`, {}, conf.callbackToken).catch(() => {}),
     15000,
   );
-  const stdout = openSync(join(root, "listener.log"), "w", 0o600);
-  const child = spawn(
-    listenerCommand(runner),
-    listenerArgs(controlledJitConfig(conf.encodedJitConfig)),
-    { cwd: runner, env, stdio: ["ignore", stdout, stdout], detached: true },
-  );
-  function stopRunner() {
-    if (process.platform === "win32") {
-      const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
-        stdio: "ignore",
-      });
-      killer.on("error", () => child.kill());
-    } else process.kill(-child.pid, "SIGTERM");
-  }
-  // GitHub's ephemeral listener finishes after its one assigned job, including post steps.
-  // Consumer cancellation/timeouts remain native; Fabric never interrupts active work by age.
-  const result = await awaitRunnerExit(child, { stop: stopRunner });
-  clearInterval(timer);
-  clearInterval(heartbeat);
-  while (busy) await sleep(100);
-  for (let n = 0; n < 10; n++) {
+  let stdout;
+  try {
+    let result;
     try {
-      await flush();
-      if (!pending.length) break;
-    } catch {}
-    await sleep(1000);
-  }
-  for (const s of streams.values()) closeSync(s.fd);
-  closeSync(stdout);
-  if (pending.length) gaps += pending.length;
-  const reported = await reportCompletion(
-    (body) => request(`/api/agent/${lease}/finished`, body, conf.callbackToken),
-    { ...result, logGaps: gaps },
-  );
-  if (!reported)
-    console.warn(
-      "Completion reporting deferred. The control plane will reconcile status.",
+      stdout = openSync(join(root, "listener.log"), "w", 0o600);
+      const child = spawn(
+        listenerCommand(runner),
+        listenerArgs(controlledJitConfig(conf.encodedJitConfig)),
+        { cwd: runner, env, stdio: ["ignore", stdout, stdout], detached: true },
+      );
+      function stopRunner() {
+        if (process.platform === "win32") {
+          const killer = spawn(
+            "taskkill.exe",
+            ["/PID", String(child.pid), "/T", "/F"],
+            {
+              stdio: "ignore",
+            },
+          );
+          killer.on("error", () => child.kill());
+        } else process.kill(-child.pid, "SIGTERM");
+      }
+      // GitHub's ephemeral listener finishes after its one assigned job, including post steps.
+      // Consumer cancellation/timeouts remain native; Fabric never interrupts active work by age.
+      result = await awaitRunnerExit(child, { stop: stopRunner });
+    } finally {
+      clearInterval(timer);
+      clearInterval(heartbeat);
+      while (busy) await sleep(100);
+    }
+    for (let n = 0; n < 10; n++) {
+      try {
+        await flush();
+        if (!pending.length) break;
+      } catch {}
+      await sleep(1000);
+    }
+    if (pending.length) gaps += pending.length;
+    const reported = await reportCompletion(
+      (body) => request(`/api/agent/${lease}/finished`, body, conf.callbackToken),
+      { ...result, logGaps: gaps },
     );
-  // Diagnostic content intentionally stays on this disposable VM; never upload it to the public provider repo.
-  console.log("Fabric runner finished. Consumer logs are available in Actions Fabric.");
-  process.exitCode = result.exitCode;
+    if (!reported)
+      console.warn(
+        "Completion reporting deferred. The control plane will reconcile status.",
+      );
+    // Diagnostic content intentionally stays on this disposable VM; never upload it to the public provider repo.
+    console.log(
+      "Fabric runner finished. Consumer logs are available in Actions Fabric.",
+    );
+    process.exitCode = result.exitCode;
+  } finally {
+    for (const s of streams.values()) closeSync(s.fd);
+    if (stdout !== undefined) closeSync(stdout);
+  }
 }
 try {
   await main();
