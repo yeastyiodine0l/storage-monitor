@@ -1,0 +1,29 @@
+# Managed by Actions Fabric maintenance; version 2
+name: Fabric maintenance 0a1b145c-ad7a-48e6-b64c-3feae57f8113
+run-name: Fabric maintenance 0a1b145c-ad7a-48e6-b64c-3feae57f8113
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: fabric-maintenance-0a1b145c-ad7a-48e6-b64c-3feae57f8113
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Verify runner environment
+        run: >
+          set -euo pipefail
+
+          { uname -s; git --version; node --version; df -Pk / | tail -1; test -d
+          "$RUNNER_TEMP"; printf "Maintenance environment check passed\n"; } |
+          tee "$RUNNER_TEMP/fabric-maintenance-check.txt"
+      - name: Retain maintenance environment evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: fabric-maintenance-0a1b145c-ad7a-48e6-b64c-3feae57f8113
+          path: ${{ runner.temp }}/fabric-maintenance-check.txt
+          retention-days: 1
+          if-no-files-found: error
