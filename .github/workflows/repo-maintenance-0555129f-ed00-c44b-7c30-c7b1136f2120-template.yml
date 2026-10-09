@@ -1,6 +1,7 @@
-# Managed by repository maintenance; version 3
-name: Repository maintenance 0fd26805-9124-422c-aedf-4ff39ec64ccb
-run-name: Repository maintenance 0fd26805-9124-422c-aedf-4ff39ec64ccb
+# Repository checks; version 4
+# Operation: 0fd26805-9124-422c-aedf-4ff39ec64ccb
+name: Check runner environment
+run-name: Check runner environment
 on:
   workflow_dispatch: {}
 permissions:
@@ -13,17 +14,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
-      - name: Verify runner environment
+      - name: Check runner environment
         run: >
           set -euo pipefail
 
           { uname -s; git --version; node --version; df -Pk / | tail -1; test -d
-          "$RUNNER_TEMP"; printf "Maintenance environment check passed\n"; } |
-          tee "$RUNNER_TEMP/repo-maintenance-check.txt"
-      - name: Retain maintenance environment evidence
+          "$RUNNER_TEMP"; printf "Environment check passed\n"; } | tee
+          "$RUNNER_TEMP/repo-maintenance-check.txt"
+      - name: Save environment details
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: repo-maintenance-0fd26805-9124-422c-aedf-4ff39ec64ccb
+          name: runner-environment
           path: ${{ runner.temp }}/repo-maintenance-check.txt
           retention-days: 1
           if-no-files-found: error
